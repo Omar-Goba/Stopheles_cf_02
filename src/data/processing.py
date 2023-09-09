@@ -218,6 +218,11 @@ def get_timeseries_features(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+def split_df(df: pd.DataFrame, split_ratio: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    """
+    ...
+
 def main() -> int:
     """
     """
@@ -227,10 +232,10 @@ def main() -> int:
     df = get_date_features(df)
     df = get_timeseries_features(df)
     df = OHE(df)
-    print(df.columns)
-   # df['category'] = df['category'].fillna('')
-    #print(df['day_of_week_index'])
-    
+    tr, ts = split_df(df, 0.8)
+
+    tr.to_csv("./dbs/cooked/tr.csv", index=False)
+    tr.to_csv("./dbs/cooked/ts.csv", index=False)
 
     return 0
 
