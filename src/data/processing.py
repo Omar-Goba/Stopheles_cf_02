@@ -201,28 +201,20 @@ def get_timeseries_features(df: pd.DataFrame) -> pd.DataFrame:
             column_name = f'target_value_ewm_alpha{alpha}_window{window}'
             df[column_name] = df['target_value'].ewm( span=window).mean()
 
-            #f[column_name] = df['target_value'].ewm(alpha=alpha, span=window).mean()
+        #f[column_name] = df['target_value'].ewm(alpha=alpha, span=window).mean()
 
     day_of_year_series = df['day_of_year']
 
-# Apply Fourier Transform for various values of 'n'
-    n_values = [3, 6, 9, 12, 15, 18, 21, 24]
+    # Apply Fourier Transform 
 
-    for n in n_values:
-        fft_result = np.fft.fft(day_of_year_series, n=n)
-    
+    fft_result = np.fft.fft(df.target_value)
+
     # Store the Fourier coefficients or perform further analysis
-        real_part = fft_result.real
-        imag_part = fft_result.imag
-        
-        if len(real_part) < len(df):
-         real_part = np.pad(real_part, (0, len(df) - len(real_part)), 'constant', constant_values=np.nan)
-        if len(imag_part) < len(df):
-            imag_part = np.pad(imag_part, (0, len(df) - len(imag_part)), 'constant', constant_values=np.nan)
-    
-    # Store or analyze the results as needed
-        df[f'day_of_year_fft_real_n{n}'] = real_part
-        df[f'day_of_year_fft_imag_n{n}'] = imag_part
+    magnitude = np.abs(fft_result)
+    phase = np.angle(fft_result)
+
+    df["fft_mag"] = magnitude
+    df["fft_phase"] = phase
 
     return df
 
@@ -230,7 +222,7 @@ def main() -> int:
     """
     """
     ### get the data ###
-    df = get_date("db.csv") 
+    df = get_date("./dbs/intermittent/db.csv") 
     df = clean(df)
     df = get_date_features(df)
     df = get_timeseries_features(df)
