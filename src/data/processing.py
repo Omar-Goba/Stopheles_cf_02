@@ -4,9 +4,8 @@ from tqdm import tqdm
 import pandas as pd
 import numpy as np
 import os
+from datetime import datetime
     
-
-### ~~~ CLEANING ~~~ ###
 def get_date(path: str) -> pd.DataFrame:
     """
         Get the date from the csv file
@@ -20,7 +19,7 @@ def get_date(path: str) -> pd.DataFrame:
     df = pd.read_csv(path, names=["date", "value", "label", "unused"], header=None)
     return df
 
-def OHE(df: pd.DataFrame) -> pd.DataFrame:
+def OHE(df: pd.DataFrame) -> pd.DataFrame: 
     """
         Do a one hot encoding on the dataframe for the 
         catigory column. hint: use pd.get_dummies and "|".join()
@@ -29,30 +28,66 @@ def OHE(df: pd.DataFrame) -> pd.DataFrame:
         2023/09/07,85,["coffee", "milk"] --> 2023/09/06,100,1,0,1,0,0
         2023/09/07,85,["cigar", "gum"] --> 2023/09/06,100,0,0,0,1,1
     """
-    ...
+    df['category'] = df['category'].fillna('')
+    try :
+        df['category'] = df['category'].apply(lambda x: '|'.join(map(str, x)) if isinstance(x, list) else str(x))
 
+    except ValueError:
+        pass
+    
+    unique_categories = set(category for categories in df['category'] if isinstance(categories, str)
+                            for category in categories.split('|'))
+    for category in unique_categories:
+        df[category] = 0
+    
+    # Populate the columns with 1 if the category is present in the row's string
+    for category in unique_categories:
+        df[category] = df['category'].apply(lambda x: 1 if isinstance(x, str) and category in x.split('|') else 0)
+    
+    df.drop(columns=['category'],inplace=True)
+    #df = pd.get_dummies(df, columns=['category'])
+
+    return df
+    
+def reindex_df(df: pd.DataFrame) -> pd.DataFrame:
+    
+    """reindex the dataframe to have all dates starting from the first to the last and fill the empty dates with 
+    value=0 and category = na"""
+    try:
+      data_range = pd.date_range(start= df['timestamp'].min(), end = df['timestamp'].max())
+      df = df.set_index('timestamp').reindex(data_range,fill_value=0)
+      df.loc[df['target_value']==0 ,'category'] = pd.NA 
+      df['timestamp'] = df.index
+      df.index.name = None  # Remove the index name
+      df = df[['timestamp'] + [col for col in df.columns if col != 'timestamp']] 
+    except ValueError as e:
+        pass
+    
+    return df
+
+def aggregate_duplicates(df: pd.DataFrame) -> pd.DataFrame:
+    
+    "aggregates the duplicate dates and adds different categories to a list"
+    df = df.groupby('timestamp').agg({
+    'target_value': 'sum',
+    'category': list
+    }).reset_index()
+    df['category']= df['category'].apply(lambda x: list(set(x)))
+    return df
+
+def remove_outliers(df: pd.DataFrame) -> pd.DataFrame:
+    """removes outliers"""
+    Q1 = df['target_value'].quantile(0.25)
+    Q3 = df['target_value'].quantile(0.75)
+    IQR = Q3-Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    df = df[(df['target_value']>=lower_bound) & df['target_value']<=upper_bound ]
+    return df
+    
 def clean(df: pd.DataFrame) -> pd.DataFrame:
-    """
-        Clean the dataframe
-        do the following:
-            - drop unused column (last column)
-            - rename columns (timestamp, target_value, catigory)
-            - set the dtype of the dataframe
-            - remove outliers (IQR) on target_value
-            - drop duplicate dates by the following aggregation:
-                * target_value = sum
-                * category = list
-            - reindexing to be daily and fill missing days with the following:
-                * target_value = 0
-                * category = np.nan
-        args:
-            df: pd.DataFrame
-                dataframe with the date
-        return:
-            df: pd.DataFrame
-                cleaned dataframe
-    """
-
+    
+    df = set_dtype(df)
     ### drop unused ###
     df.drop("unused", axis=1, inplace=True)
     
@@ -61,37 +96,18 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     df.rename(columns=column_mapping, inplace=True)
     
     ### remove outliers ###
-    Q1 = df['target_value'].quantile(0.25)
-    Q3 = df['target_value'].quantile(0.75)
-    IQR = Q3-Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
-    df = df[(df['target_value']>=lower_bound) & df['target_value']<=upper_bound ]
+    df = remove_outliers(df)
     
     ### drop duplicate dates & aggregate ###
-    df = df.groupby('timestamp').agg({
-    'target_value': 'sum',
-    'category': list
-    }).reset_index()
+    df = aggregate_duplicates(df)
     
     ### reindex to be daily ###
-    try:
-      data_range = pd.date_range(start= df['timestamp'].min(), end = df['timestamp'].max())
-      df = df.set_index('timestamp').reindex(data_range,fill_value=0)
-      df.loc[df['target_value']==0 ,'category'] = pd.NA 
-    except ValueError as e:
-        # Handle date parsing errors by printing the problematic values
-        print(f"Error parsing dates: {e}")
-        print("Problematic values:")
+    df = reindex_df(df)
     
     return df
     
-    
-
-    
-    
-
 def set_dtype(df: pd.DataFrame) -> pd.DataFrame:
+    
     # Specify the custom date format
     date_format = '%y/%m/%d'
     df = df.dropna(subset=['date'])
@@ -101,18 +117,17 @@ def set_dtype(df: pd.DataFrame) -> pd.DataFrame:
     except ValueError as e:
         pass
     
-        #print(f"Error parsing dates: {e}")
-       # print("Problematic values:")
-       # print(df.loc[pd.to_datetime(df['date'], format=date_format, errors='coerce').isna()]['date']) 
-
+    # set the type of the value column to be float
     df['value'] = df['value'].astype(float)
-    df['label'] = df['label'].apply(lambda x: [x])  
-    
+    # set the label column to be 1d list using explode to flatten the list
+    df['label'] = df['label'].explode().reset_index(drop=True)
+
     return df
 
+def is_weekend(day):
+    ### check if the provided day is friday or saturday###
+    return day.weekday()==4 or day.weekday()==5
 
-### ~~~ CLEANING ~~~ ###
-### ~~~ FEATURE EXTRACTION ~~~ ###
 def get_date_features(df: pd.DataFrame) -> pd.DataFrame:
     """
         Get the date features from the dataframe
@@ -131,9 +146,34 @@ def get_date_features(df: pd.DataFrame) -> pd.DataFrame:
             df: pd.DataFrame
                 dataframe with the date features but without the date column
     """
-    ...
-
-def get_timeseries_features(df: pd.DataFrame) -> pd.DataFrame:    
+    #Create a new column which contains the corresponding weekday's name for each timestamp
+    #df['day_of_week_name'] = df['timestamp'].dt.day_name
+    df['day_of_week_index'] = df['timestamp'].dt.weekday
+    
+     #Create a new column which contains the corresponding day of the month for each timestamp
+    df['day_of_month'] = df['timestamp'].dt.day
+    
+    #Create a new column which contains the corresponding day of the year for each timestamp
+    df['day_of_year'] = df['timestamp'].dt.dayofyear
+        
+    #Create a new column which contains the corresponding week of the year for each timestamp
+    df['week_of_year'] = df['timestamp'].dt.isocalendar().week
+        
+    #Create a new column which contains the corresponding week of the year for each timestamp
+    df['month_of_year'] = df['timestamp'].dt.month
+        
+    #Create a new column which contains the corresponding quarter of the year for each timestamp
+    df['quarter_of_year'] = df['timestamp'].dt.quarter
+        
+    #Create a new column which tells if this day is a weekend or not , 1 = yes , 0 = no using a helper method
+    df['is_weekend'] = df['timestamp'].apply(is_weekend)
+        
+    #remove the date columns
+    df.drop('timestamp',axis=1,inplace=True)
+        
+    return df
+    
+def get_timeseries_features(df: pd.DataFrame) -> pd.DataFrame:
     """
         Get the time features from the dataframe
             - lags, lag = [1, 2, 3, 4, 5, 6, 7, 14, 21, 28]
@@ -145,22 +185,61 @@ def get_timeseries_features(df: pd.DataFrame) -> pd.DataFrame:
         return:
             df: pd.DataFrame
     """
-    ...
-### ~~~ FEATURE EXTRACTION ~~~ ###
+    lags = [1, 2, 3, 4, 5, 6, 7, 14, 21, 28]
+    for lag in lags:
+        df[f'target_value_lag{lag}'] = df['target_value'].shift(lag)
+    
+    rolling_windows = [7, 14, 21, 28]
+    for window in rolling_windows:
+        df[f'target_value_rolling_mean{window}'] = df['target_value'].rolling(window=window).mean()
+    
+    alpha_values = [0.3, 0.5, 0.7]
+    window_sizes = [7, 14, 21, 28]
+    
+    for alpha in alpha_values:
+        for window in window_sizes:
+            column_name = f'target_value_ewm_alpha{alpha}_window{window}'
+            df[column_name] = df['target_value'].ewm( span=window).mean()
 
+            #f[column_name] = df['target_value'].ewm(alpha=alpha, span=window).mean()
 
+    day_of_year_series = df['day_of_year']
+
+# Apply Fourier Transform for various values of 'n'
+    n_values = [3, 6, 9, 12, 15, 18, 21, 24]
+
+    for n in n_values:
+        fft_result = np.fft.fft(day_of_year_series, n=n)
+    
+    # Store the Fourier coefficients or perform further analysis
+        real_part = fft_result.real
+        imag_part = fft_result.imag
+        
+        if len(real_part) < len(df):
+         real_part = np.pad(real_part, (0, len(df) - len(real_part)), 'constant', constant_values=np.nan)
+        if len(imag_part) < len(df):
+            imag_part = np.pad(imag_part, (0, len(df) - len(imag_part)), 'constant', constant_values=np.nan)
+    
+    # Store or analyze the results as needed
+        df[f'day_of_year_fft_real_n{n}'] = real_part
+        df[f'day_of_year_fft_imag_n{n}'] = imag_part
+
+    return df
 
 def main() -> int:
     """
     """
     ### get the data ###
     df = get_date("db.csv") 
-    df = set_dtype(df)
     df = clean(df)
-
-    print(df)
+    df = get_date_features(df)
+    df = get_timeseries_features(df)
+    df = OHE(df)
+    print(df.columns)
+   # df['category'] = df['category'].fillna('')
+    #print(df['day_of_week_index'])
+    
 
     return 0
-
 
 if (__name__ == "__main__"):    main()

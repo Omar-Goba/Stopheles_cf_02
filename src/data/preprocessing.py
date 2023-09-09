@@ -9,7 +9,7 @@ def main() -> int:
     """
     ### load data ###
     root_dir = "./"
-    with open(f"{root_dir}dbs/raw/db.csv", "r") as f:
+    with open("db.csv", "r") as f:
         txt = f.read()
 
     ### format data ###
@@ -23,7 +23,7 @@ def main() -> int:
     assert all([len(row) == 4 for row in df]), "Error: Invalid row length"
 
     ### save data ###
-    with open(f"{root_dir}dbs/intermittent/db.csv", "w") as f:
+    with open("db.csv", "w") as f:
         f.write(txt)
 
     return 0
