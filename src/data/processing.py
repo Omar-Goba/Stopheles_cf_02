@@ -5,6 +5,10 @@ import pandas as pd
 import numpy as np
 import os
 from datetime import datetime
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
+
     
 def get_date(path: str) -> pd.DataFrame:
     """
@@ -90,10 +94,11 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     df = set_dtype(df)
     ### drop unused ###
     df.drop("unused", axis=1, inplace=True)
-    
+
       ### rename ###
     column_mapping = {'date': 'timestamp', 'value': 'target_value', 'label': 'category'}
     df.rename(columns=column_mapping, inplace=True)
+
     
     ### remove outliers ###
     df = remove_outliers(df)
@@ -126,7 +131,9 @@ def set_dtype(df: pd.DataFrame) -> pd.DataFrame:
 
 def is_weekend(day):
     ### check if the provided day is friday or saturday###
-    return day.weekday()==4 or day.weekday()==5
+    if (day.weekday()==4 or day.weekday()==5):
+        return 1
+    return 0
 
 def get_date_features(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -218,24 +225,50 @@ def get_timeseries_features(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-def split_df(df: pd.DataFrame, split_ratio: int) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    """
-    ...
 
+def split(df):
+    """
+    Split a DataFrame into training and testing sets with StandardScaler scaling.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame to be split.
+
+    Returns:
+        Tuple containing two DataFrames: (train_df, test_df).
+    """
+    # Calculate the index to split the DataFrame
+    split_index = int(len(df) * 0.8)
+    
+    # Split the DataFrame into training and testing sets
+    tr = df.iloc[:split_index]
+    ts = df.iloc[split_index:]
+    
+    
+    
+    return tr, ts
 def main() -> int:
     """
     """
     ### get the data ###
-    df = get_date("./dbs/intermittent/db.csv") 
+    df = get_date("db.csv") 
     df = clean(df)
     df = get_date_features(df)
     df = get_timeseries_features(df)
     df = OHE(df)
-    tr, ts = split_df(df, 0.8)
+    df = df.fillna(0)
+    print(df.columns)
+    df.drop(columns='',inplace = True)
+    df.drop(columns='+',inplace = True)
+    df.drop(columns='nan',inplace = True)
+    #tr, ts = split_df_with_scaling(df,'target_value',0.8)
+    tr, ts = split(df)
+
+    
+    
 
     tr.to_csv("./dbs/cooked/tr.csv", index=False)
-    tr.to_csv("./dbs/cooked/ts.csv", index=False)
+    ts.to_csv("./dbs/cooked/ts.csv", index=False)
+
 
     return 0
 
